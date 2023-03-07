@@ -8,12 +8,11 @@ import sys
 import imp
 import logging
 
-sys.path.append("/Users/vedang.bhardwaj/Desktop/work_mode/Underwriting_Model/dags_v2")
 
-# sys.path.append("/opt/airflow/dags/repo/dags/template/")
-# import kubernetes_resources as kubernetes
+sys.path.append("/opt/airflow/dags/repo/dags/template/")
+import kubernetes_resources as kubernetes
 
-# imp.reload(kubernetes)
+imp.reload(kubernetes)
 
 # from great_expectations_provider.operators.great_expectations import (
 #     GreatExpectationsOperator,
@@ -39,10 +38,8 @@ sys.path.append(
 
 
 import uw_kb_txn_module_dag_v2 as KB_TXN_MODULE
-import uw_kb_activity_module_dag_v2 as KB_ACTIVITY_MODULE
 import uw_kb_sms_module_dag_v2 as KB_SMS_MODULE
 import uw_kb_bureau_module_dag_v2 as KB_BUREAU_MODULE
-import uw_combination_model_lr_dag_v2 as COMBINATION_MODEL_LR
 import uw_combination_model_xg_dag_v2 as COMBINATION_MODEL_XG
 import uw_psi_gini_calculation_v2 as MASTER_TABLE_GENERATION
 
@@ -89,7 +86,6 @@ args = {
     "email_on_failure": False,
     "email_on_retry": False,
     "retries": 1,
-    "provide_context": True
     # 'on_failure_callback':intimate_of_failure_on_slack
 }
 
@@ -138,7 +134,7 @@ def generate_dag(dataset_name):
             provide_context=True,
             op_kwargs={"dataset_name": dataset_name},
             python_callable=globals()[dataset_name].xgboost_model_prediction,
-            # executor_config=resource_config,
+            executor_config=combined_resource_config,
             trigger_rule="none_failed",
         )
 
@@ -211,7 +207,7 @@ def combined_prediction_dag(prediction_name, external_task_id):
             provide_context=True,
             op_kwargs={"dataset_name": prediction_name},
             python_callable=globals()[prediction_name].predict,
-            # executor_config=resource_config,
+            # executor_config=combined_resource_config,
         )
         generate_result = PythonOperator(
             task_id="generate_result",
@@ -230,15 +226,11 @@ def combined_prediction_dag(prediction_name, external_task_id):
             # executor_config=combined_resource_config,
         )
     start >> [kb_txn_module_wait, kb_sms_module_wait, kb_bureau_module_wait]
-    (
-        [
-            kb_txn_module_wait,
-            kb_sms_module_wait,
-            kb_bureau_module_wait,
-        ]
-        >> get_start_date
-        >> combined_model_prediction
-    )
+    [
+        kb_txn_module_wait,
+        kb_sms_module_wait,
+        kb_bureau_module_wait,
+    ] >> get_start_date >> combined_model_prediction
     combined_model_prediction >> generate_result >> write_master_table
     return dag
 
@@ -285,7 +277,7 @@ def gini_psi_calculation(dataset_name, external_task_id):
             provide_context=True,
             op_kwargs={"dataset_name": dataset_name},
             python_callable=globals()[dataset_name].merge_repayments_data,
-            # #executor_config=combined_resource_config,
+            # executor_config=combined_resource_config,
         )
         calculate_gini_score = PythonOperator(
             task_id="calculate_gini_score",
@@ -302,7 +294,7 @@ def gini_psi_calculation(dataset_name, external_task_id):
             op_kwargs={"dataset_name": dataset_name},
             python_callable=globals()[dataset_name].calculate_ks_score,
             trigger_rule="none_failed",
-            # #executor_config=resource_config,
+            # executor_config=resource_config,
         )
         calculate_psi_score = PythonOperator(
             task_id="calculate_psi_score",
@@ -311,25 +303,7 @@ def gini_psi_calculation(dataset_name, external_task_id):
             op_kwargs={"dataset_name": dataset_name},
             python_callable=globals()[dataset_name].calculate_PSI,
             trigger_rule="none_failed",
-            # #executor_config=resource_config,
-        )
-        calculate_kl_divergence = PythonOperator(
-            task_id="calculate_psi_score",
-            execution_timeout=timedelta(minutes=60),
-            provide_context=True,
-            op_kwargs={"dataset_name": dataset_name},
-            python_callable=globals()[dataset_name].calculate_kl_divergence,
-            trigger_rule="none_failed",
-            # #executor_config=resource_config,
-        )
-        calculate_z_score = PythonOperator(
-            task_id="calculate_psi_score",
-            execution_timeout=timedelta(minutes=60),
-            provide_context=True,
-            op_kwargs={"dataset_name": dataset_name},
-            python_callable=globals()[dataset_name].calculate_z_score,
-            trigger_rule="none_failed",
-            # #executor_config=resource_config,
+            # executor_config=resource_config,
         )
 
     start >> comb_xg_final_task_wait
@@ -339,11 +313,8 @@ def gini_psi_calculation(dataset_name, external_task_id):
         >> calculate_gini_score
         >> calculate_ks_score
         >> calculate_psi_score
-        >> calculate_ks_score
-        >> calculate_z_score
     )
     return dag
-
 
 for dataset in ["KB_TXN_MODULE", "KB_SMS_MODULE", "KB_BUREAU_MODULE"]:
     globals()[f"uw_{dataset.lower()}_dag_v2"] = generate_dag(dataset_name=dataset)

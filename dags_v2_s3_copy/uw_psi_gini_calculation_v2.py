@@ -38,8 +38,7 @@ def merge_repayments_data(dataset_name):
     from uw_sql_queries_v2 import Get_query
 
     start_date = "2022-08-01"
-    end_date = "2022-10-31"
-    # end_date = datetime.now().strftime("%Y-%m-%d")
+    end_date = datetime.now().strftime("%Y-%m-%d")
 
     def merge_data(start_date, end_date):
         sql_query = Get_query("MASTER_TABLE_GENERATION").merge_master_table.format(
@@ -55,9 +54,6 @@ def merge_repayments_data(dataset_name):
     # data = data.drop_duplicates()
     # print(f"post dropping duplicates {data.shape}")
     return
-
-
-merge_repayments_data("MASTER_TABLE_GENERATION")
 
 
 def calculate_gini_score(dataset_name):
@@ -157,9 +153,6 @@ def calculate_gini_score(dataset_name):
     write_to_snowflake(data, "verdict_with_gini_psi_rule_add", dataset_name.lower())
 
 
-calculate_gini_score("MASTER_TABLE_GENERATION")
-
-
 def calculate_ks_score(dataset_name):
     def get_data(dataset_name):
         sql_query = Get_query(dataset_name).get_master_table
@@ -200,11 +193,8 @@ def calculate_ks_score(dataset_name):
             data_subset["PRED_COL"] = prediction_col_name
             df_result = df_result.append(data_subset)
 
-    # truncate_table(df_result, "modules_ks_scores")
-    # write_to_snowflake(df_result, "modules_ks_scores", dataset_name.lower())
-    print(df_result)
-
-calculate_ks_score("MASTER_TABLE_GENERATION")
+    truncate_table(df_result, "modules_ks_scores")
+    write_to_snowflake(df_result, "modules_ks_scores", dataset_name.lower())
 
 
 def calculate_PSI(dataset_name):
@@ -307,7 +297,6 @@ def calculate_PSI(dataset_name):
             num_col = ["TRX_PD", "SMS_PD", "BR_PD"]
             cat_col = []
             module_data = copy.deepcopy(oot_data[(oot_data[f"{col}"].notnull())])
-
         num_col.append(col)
         module_psi = PSI_calculation(
             train_data,
@@ -343,6 +332,3 @@ def calculate_PSI(dataset_name):
     # return frames
     truncate_table("psi_results_rule_add", "MASTER_TABLE_GENERATION".lower())
     write_to_snowflake(frames, "psi_results_rule_add", "MASTER_TABLE_GENERATION".lower())
-
-
-calculate_PSI("MASTER_TABLE_GENERATION")

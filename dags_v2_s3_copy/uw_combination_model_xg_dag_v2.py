@@ -32,17 +32,16 @@ def truncate_table(identifier, dataset_name):
         logging.info(f"Error on truncate_table:{error}")
     return
 
-
 def predict(dataset_name, **kwargs):
     import pickle
     import numpy as np
     import pandas as pd
     from uw_sql_queries_v2 import Get_query
 
-    # start_date = kwargs["ti"].xcom_pull(key="start_date")
-    start_date = "2023-02-22"
-    # end_date = datetime.now().strftime("%Y-%m-%d")
-    end_date = "2023-02-23"
+    start_date = kwargs["ti"].xcom_pull(key="start_date")
+    # start_date = "2022-08-01"
+    end_date = datetime.now().strftime("%Y-%m-%d")
+    # end_date = "2023-02-21"
     print(f"*********************** start_date: {start_date}***********************")
     print(f"*********************** end_date: {end_date} ***********************")
 
@@ -151,17 +150,6 @@ def predict(dataset_name, **kwargs):
     ]
 
     BRE_data["COMBINATION_TYPE"] = BRE_data.apply(combination_type, axis=1)
-    # data_merge = BRE_data[['USER_ID','BRE_RUN_DATE','BRE_RUN_ID','DISBURSED_DATE','EVER_15DPD_IN_90DAYS','COMBINATION_TYPE',
-    #                         'OVERALL_BOUNCE_M0123',
-    #     'AUTO_DEBIT_BOUNCE_M0','AUTO_DEBIT_BOUNCE_M1','BUREAUSCORE',
-    #     'WRITTEN_OFF_SETTLED_24MONTHS_CNT_FOR_RULE','WRITTEN_OFF_AMT_TOTAL_FOR_RULE',
-    #     'SUITFILED_WILFULDEFAULT_24MONTHS_FOR_RULE',
-    #     'NEGATIVEACCOUNSTATUS_24MONTHS_FOR_RULE',
-    #     'SUITFILEDWILLFULDEFAULTWRITTENOFFSTATUS_24MONTHS_FOR_RULE',
-    #     'DEFAULT_ACCOUNTS_FOR_RULE',
-    #     'MAX_DPD_2_YEARS_FOR_RULE',
-    #     'PAYMENTHISTORYPROFILE_12MONTHS_FOR_RULE',
-    #     'SCORE_CD_V2_EMSEMBLE_PROBABILITY']]
 
     BRE_data["DISBURSED_DATE"] = pd.to_datetime(
         BRE_data[f"DISBURSED_DATE"]
@@ -259,7 +247,7 @@ def predict(dataset_name, **kwargs):
     data_merge["COMBINED_LOGODDS"] = np.log(
         data_merge["COMBINED_PD"] / (1 - data_merge["COMBINED_PD"])
     )
-    print(f" Pandas version ***********{pd.__version__}***********")
+    print(f"************************************* PANDAS VERSION {pd.__version__}*************************************")
     Final_calib = pickle.loads(
         s3.Bucket(s3_bucket)
         .Object(f"{model_path}Model_Final_calibration.pkl")
@@ -286,7 +274,7 @@ def predict(dataset_name, **kwargs):
         elif data["CALIB_PD"] > 0.053163138:
             return "E"
         else:
-            return "Missing"
+            return "Missing"    
 
     data_merge["Risk_bands"] = data_merge.apply(Risk_bucket, axis=1)
 
@@ -298,24 +286,18 @@ def predict(dataset_name, **kwargs):
     # data_merge.drop(["BRE_RUN_DATE_TIME"], axis=1, inplace=True)
 
     truncate_table("final_result_rule_add", "COMBINATION_MODEL_XG".lower())
-    write_to_snowflake(
-        data_merge, "final_result_rule_add", "COMBINATION_MODEL_XG".lower()
-    )
+    write_to_snowflake(data_merge, "final_result_rule_add", "COMBINATION_MODEL_XG".lower())
     return
 
-
-predict("COMBINATION_MODEL_XG")
-
-
-def result_generation(dataset_name):
+def result_generation(dataset_name,**kwargs):
     from uw_sql_queries_v2 import Get_query
     from uw_policy_rules_dag_v2 import apply_rules, policy_with_fb
     import pandas as pd
 
     # start_date = kwargs["ti"].xcom_pull(key="start_date")
-    start_date = "2023-02-21"
+    # start_date = "2023-02-21"
     # end_date = datetime.now().strftime("%Y-%m-%d")
-    end_date = "2023-02-23"
+    # end_date = "2023-02-23"
 
     def get_data():
         sql_query = Get_query("COMBINATION_MODEL_XG").get_policy_run_gen_table
@@ -405,7 +387,7 @@ def result_generation(dataset_name):
             "PASS" if (x <= 0.0354) else "FAIL" if (x > 0.0354) else "NOT_DECIDED"
             for x in data["SCORE_CD_V2_EMSEMBLE_PROBABILITY"]
         ]
-        data["Rule15_NUM_LOAN_DEFAULTS_30D"] = [
+        data["Rule15:NUM_LOAN_DEFAULTS_30D"] = [
             "FAIL"
             if ((x + y > 3) or z > 0 or w > 0)
             else "PASS"
@@ -418,7 +400,7 @@ def result_generation(dataset_name):
                 data["NUM_CREDIT_CARD_DEFAULT_30D"],
             )
         ]
-
+        
         # removing col NUM_CREDIT_CARD_DEFAULT_30D
         # data["Rule15:NUM_LOAN_DEFAULTS_30D"] = [
         #     "FAIL"
@@ -470,14 +452,8 @@ def result_generation(dataset_name):
     data = get_data()
     verdict_data = rule_engine_verdict(data)
     truncate_table("verdict_result_rule_add", "COMBINATION_MODEL_XG".lower())
-    write_to_snowflake(
-        verdict_data, "verdict_result_rule_add", "COMBINATION_MODEL_XG".lower()
-    )
+    write_to_snowflake(verdict_data, "verdict_result_rule_add", "COMBINATION_MODEL_XG".lower())
     return
-
-
-result_generation("COMBINATION_MODEL_XG")
-
 
 def merge_master_table(dataset_name):
     import pandas as pd
@@ -492,5 +468,3 @@ def merge_master_table(dataset_name):
     merge_data()
     return
 
-
-merge_master_table("COMBINATION_MODEL_XG")

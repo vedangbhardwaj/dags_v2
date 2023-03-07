@@ -7,25 +7,25 @@ from snowflake.connector.pandas_tools import pd_writer
 from snowflake.sqlalchemy import URL
 import snowflake.connector
 from sqlalchemy import create_engine
-from math import log2
 
 config = Variable.get("underwriting_dags_v2", deserialize_json=True)
 
 
 def get_connector():
     conn = snowflake.connector.connect(
-        user=config["user"],
-        password=config["password"],
-        account=config["account"],
-        # user=os.environ.get('SNOWFLAKE_UNAME'),
-        # password=os.environ.get('SNOWFLAKE_PASS'),
-        # account=os.environ.get('SNOWFLAKE_ACCOUNT'),
+        # user=config["user"],
+        # password=config["password"],
+        # account=config["account"],
+        user=os.environ.get('SNOWFLAKE_UNAME'),
+        password=os.environ.get('SNOWFLAKE_PASS'),
+        account=os.environ.get('SNOWFLAKE_ACCOUNT'),
         role=config["role"],
         warehouse=config["warehouse"],
         database=config["database"],
         insecure_mode=True,
     )
     return conn
+
 
 def write_to_snowflake(data, identifier, dataset_name):
     data1 = data.copy()
@@ -59,12 +59,12 @@ def write_to_snowflake(data, identifier, dataset_name):
     dtype_dict
     engine = create_engine(
         URL(
-            account=config["account"],
-            user=config["user"],
-            password=config["password"],
-            # user=os.environ.get("SNOWFLAKE_UNAME"),
-            # password=os.environ.get("SNOWFLAKE_PASS"),
-            # account=os.environ.get("SNOWFLAKE_ACCOUNT"),
+            # account=config["account"],
+            # user=config["user"],
+            # password=config["password"],
+            user=os.environ.get("SNOWFLAKE_UNAME"),
+            password=os.environ.get("SNOWFLAKE_PASS"),
+            account=os.environ.get("SNOWFLAKE_ACCOUNT"),
             database=config["database"],
             schema=config["schema"],
             warehouse=config["warehouse"],
@@ -93,32 +93,30 @@ def ks(data=None, target=None, prob=None, model=None):
     data1 = copy.deepcopy(data)
     data1 = data1.loc[data1["MODEL_TYPE"] == model, :]
     data1["target0"] = 1 - data[target]
-    data1["bucket"] = pd.cut(data[prob],[float('-inf'),0.0162,0.026,0.0392,0.0532,float('inf')])
+    data1["bucket"] = pd.cut(data[prob], 10)
     grouped = data1.groupby("bucket", as_index=False)
     kstable = pd.DataFrame()
     kstable["Min_prob"] = grouped.min()[prob]
     kstable["Max_prob"] = grouped.max()[prob]
     kstable["Bads"] = grouped.sum()[target]
     kstable["Goods"] = grouped.sum()["target0"]
-    kstable = kstable.sort_values(by="Min_prob", ascending=True).reset_index(drop=True)
-    kstable["Distribution Bads"] = (kstable.Bads / data1[target].sum()).apply(
+    kstable = kstable.sort_values(by="Min_prob", ascending=False).reset_index(drop=True)
+    kstable["Distribution Goods"] = (kstable.Bads / data1[target].sum()).apply(
         "{0:.2%}".format
     )
-    kstable["Distribution Goods"] = (kstable.Goods / data1["target0"].sum()).apply(
+    kstable["Distribution Bads"] = (kstable.Goods / data1["target0"].sum()).apply(
         "{0:.2%}".format
     )
-    kstable["Cum_bads"] = kstable.Bads.cumsum()
-    kstable["Cum_goods"] = kstable.Goods.cumsum()
     kstable["%Cum_bads"] = (kstable.Bads / data1[target].sum()).cumsum()
     kstable["%Cum_goods"] = (kstable.Goods / data1["target0"].sum()).cumsum()
     kstable["%Cum_difference"] = (
-        np.round(kstable["%Cum_goods"] - kstable["%Cum_bads"], 3) * 100
+        np.round(kstable["%Cum_bads"] - kstable["%Cum_goods"], 3) * 100
     )
 
     # Formating
     kstable["%Cum_bads"] = kstable["%Cum_bads"].apply("{0:.2%}".format)
     kstable["%Cum_goods"] = kstable["%Cum_goods"].apply("{0:.2%}".format)
-    kstable.index = range(1,6)
+    kstable.index = range(1, 11)
     kstable.index.rename("Decile", inplace=True)
     pd.set_option("display.max_columns", 20)
     print(kstable)
@@ -302,8 +300,3 @@ def calculate_psi_cat(Base, New, axis=0):
             psi_values[i] = psi(Base[i, :], New[i, :])
 
     return psi_values
-
-
-def kl_divergence(p,q):
-    # calculate the kl divergence
-    return sum(p[i] * log2(p[i]/q[i]) for i in range(len(p)))
